@@ -19,15 +19,18 @@ learning_rate = 4  # 学习速率 我觉得默认的这个就挺好的
 user_id = "39976996"  # 用户ID，可从API获取或手动填写
 
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
     'Content-Type': 'application/json',
-    'Cookie': 'csrftoken=' + csrftoken + '; sessionid=' + sessionid + '; university_id=' + university_id + '; platform_id=3',
+    'Accept': 'application/json, text/plain, */*',
+    'Cookie': 'csrftoken=' + csrftoken + '; sessionid=' + sessionid + '; university_id=' + university_id + '; platform_id=3; xtbz=ykt',
     'x-csrftoken': csrftoken,
     'sec-fetch-dest': 'empty',
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-origin',
     'university-id': university_id,
-    'xtbz': 'cloud'
+    'uv-id': university_id,
+    'xt-agent': 'web',
+    'xtbz': 'ykt'
 }
 
 leaf_type = {
@@ -42,36 +45,45 @@ leaf_type = {
 def one_video_watcher(video_id, video_name, cid, user_id, classroomid, skuid):
     video_id = str(video_id)
     classroomid = str(classroomid)
+    req_headers = get_headers_with_classroom(classroomid)
     url = url_root + "video-log/heartbeat/"
     get_url = url_root + "video-log/get_video_watch_progress/?cid=" + str(
         cid) + "&user_id=" + user_id + "&classroom_id=" + classroomid + "&video_type=video&vtype=rate&video_id=" + str(
-        video_id) + "&snapshot=1&term=latest&uv_id=" + university_id + ""
-    progress = requests.get(url=get_url, headers=headers)
-    if_completed = '0'
+        video_id) + "&snapshot=1"
+    progress = requests.get(url=get_url, headers=req_headers)
+    print(f"[DEBUG] 请求URL: {get_url}")
+    print(f"[DEBUG] 原始响应: {progress.text[:500]}")
+    
+    # 默认为0（即还没开始看）
+    video_frame = 0
+    val = 0
+    
+    # 获取实际值（观看时长和完成率）
     try:
-        if_completed = re.search(r'"completed":(.+?),', progress.text).group(1)
-    except:
-        pass
-    if if_completed == '1':
+        res_rate = json.loads(progress.text)
+        print(f"[DEBUG] API响应keys: {res_rate.keys()}")
+        print(f"[DEBUG] data内容: {res_rate.get('data')}")
+        # 兼容两种响应格式：data.video_id 或直接 video_id
+        # 注意：API返回的key是字符串，确保video_id也是字符串
+        vid_str = str(video_id)
+        video_data = res_rate.get("data", {}).get(vid_str) or res_rate.get(vid_str)
+        print(f"[DEBUG] video_id={vid_str}, video_data={video_data}")
+        if video_data:
+            tmp_rate = video_data.get("rate")
+            print(f"[DEBUG] rate={tmp_rate}")
+            if tmp_rate is not None:
+                val = tmp_rate
+            video_frame = video_data.get("watch_length", 0)
+    except Exception as e:
+        print(f"解析进度失败: {e}")
+    
+    # 如果已经完成（rate >= 0.95），直接跳过
+    if float(val) > 0.95:
         print(video_name + "已经学习完毕，跳过")
         return 1
     else:
         print(video_name + "，尚未学习，现在开始自动学习")
         time.sleep(2)
-
-    # 默认为0（即还没开始看）
-    video_frame = 0
-    val = 0
-    # 获取实际值（观看时长和完成率）
-    try:
-        res_rate = json.loads(progress.text)
-        tmp_rate = res_rate["data"][video_id]["rate"]
-        if tmp_rate is None:
-            return 0
-        val = tmp_rate
-        video_frame = res_rate["data"][video_id]["watch_length"]
-    except Exception as e:
-        print(e.__str__())
 
     t = time.time()
     timstap = int(round(t * 1000))
@@ -105,36 +117,48 @@ def one_video_watcher(video_id, video_name, cid, user_id, classroomid, skuid):
             )
             video_frame += learning_rate
         data = {"heart_data": heart_data}
-        r = requests.post(url=url, headers=headers, json=data)
+        r = requests.post(url=url, headers=req_headers, json=data)
         heart_data = []
         try:
             delay_time = re.search(r'Expected available in(.+?)second.', r.text).group(1).strip()
             print("由于网络阻塞，万恶的雨课堂，要阻塞" + str(delay_time) + "秒")
             time.sleep(float(delay_time) + 0.5)
             print("恢复工作啦～～")
-            r = requests.post(url=submit_url, headers=headers, data=data)
+            r = requests.post(url=submit_url, headers=req_headers, data=data)
         except:
             pass
         try:
-            progress = requests.get(url=get_url, headers=headers)
+            progress = requests.get(url=get_url, headers=req_headers)
             res_rate = json.loads(progress.text)
-            tmp_rate = res_rate["data"][video_id]["rate"]
-            if tmp_rate is None:
-                return 0
-            val = str(tmp_rate)
-            print("学习进度为：\t" + str(float(val) * 100) + "%/100%")
+            # 兼容两种响应格式
+            video_data = res_rate.get("data", {}).get(video_id) or res_rate.get(video_id)
+            if video_data:
+                tmp_rate = video_data.get("rate")
+                if tmp_rate is None:
+                    return 0
+                val = str(tmp_rate)
+                print("学习进度为：\t" + str(float(val) * 100) + "%/100%")
             time.sleep(2)
         except Exception as e:
-            print(f"获取进度失败: {e}, 响应: {progress.text[:200]}")
+            print(f"获取进度失败: {e}")
             pass
     print("视频" + video_id + " " + video_name + "学习完成！")
     return 1
 
 
+def get_headers_with_classroom(classroom_id=None):
+    """获取带有 classroom-id 的 headers"""
+    h = headers.copy()
+    if classroom_id:
+        h['classroom-id'] = str(classroom_id)
+    return h
+
+
 def get_videos_ids(course_name, classroom_id):
     # 第一步：获取courseware_id
     logs_url = url_root + f"v2/api/web/logs/learn/{classroom_id}?actype=-1&page=0&offset=20&sort=-1"
-    logs_response = requests.get(url=logs_url, headers=headers)
+    req_headers = get_headers_with_classroom(classroom_id)
+    logs_response = requests.get(url=logs_url, headers=req_headers)
     logs_json = json.loads(logs_response.text)
     
     if logs_json.get("errcode") != 0:
@@ -154,7 +178,7 @@ def get_videos_ids(course_name, classroom_id):
     
     # 第二步：使用courseware_id获取章节列表
     get_homework_ids = url_root + f"c27/online_courseware/xty/kls/pub_news/{courseware_id}/"
-    homework_ids_response = requests.get(url=get_homework_ids, headers=headers)
+    homework_ids_response = requests.get(url=get_homework_ids, headers=req_headers)
     homework_json = json.loads(homework_ids_response.text)
     homework_dic = {}
     

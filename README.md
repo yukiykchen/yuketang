@@ -1,26 +1,5 @@
 # yuketangHelperSCUTLite
-华工本科生雨课堂刷课脚本
-
-
-
-#### 说点什么：
-
-之前也有想到伪造心跳包的方法去快速刷网课，结果上GitHub一搜发现有师兄已经实现了这个思路。
-
-在此十分感谢@[heyblackC](https://github.com/heyblackC)，让我不用再研究包里变量含义了hhhh
-
-以下是原脚本仓库：
-
-https://github.com/heyblackC/yuketangHelper
-
-
-
-#### 脚本改进：
-
-- 修改一些域名及对应的参数，适配本科生系统
-- 修复一个正则表达式匹配Bug
-- 修改了一些文本提示
-
+华工本科生雨课堂刷课脚本（2025年秋）
 
 
 #### 食用方法：
@@ -46,3 +25,6 @@ https://github.com/heyblackC/yuketangHelper
 8. 终端按提示输入对应的课程编号并回车
 
 9. 直接爽到起飞🛫️
+
+# 注意
+有时候雨课堂会改后台的API接口，导致脚本无法正常运行，如果遇到这种情况，可以自行尝试抓包获取API接口
