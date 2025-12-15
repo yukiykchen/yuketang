@@ -9,14 +9,14 @@ import json
 
 # 以下的csrftoken和sessionid需要改成自己登录后的cookie中对应的字段！！！！而且脚本需在登录雨课堂状态下使用
 # 登录上雨课堂，然后按F12-->选Application-->找到雨课堂的cookies，寻找csrftoken、sessionid、university_id字段，并复制到下面两行即可
-csrftoken = ""  # 需改成自己的
-sessionid = ""  # 需改成自己的
-university_id = ""  # 需改成自己的
-url_root = ""  # 按需修改域名 example:https://*****.yuketang.cn/
+csrftoken = "0tg9UbaDO60yNYjN9lv0sig7Fljbv3yW"  # 需改成自己的
+sessionid = "0roki2bj96swp865b2p75h912jnet2l5"  # 需改成自己的
+university_id = "2627"  # 需改成自己的
+url_root = "https://changjiang.yuketang.cn/"  # 按需修改域名 example:https://*****.yuketang.cn/
 learning_rate = 4  # 学习速率 我觉得默认的这个就挺好的
 
 # 以下字段不用改，下面的代码也不用改动
-user_id = ""
+user_id = "39976996"  # 用户ID，可从API获取或手动填写
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.67 Safari/537.36',
@@ -125,63 +125,74 @@ def one_video_watcher(video_id, video_name, cid, user_id, classroomid, skuid):
             print("学习进度为：\t" + str(float(val) * 100) + "%/100%")
             time.sleep(2)
         except Exception as e:
-            print(e.__str__())
+            print(f"获取进度失败: {e}, 响应: {progress.text[:200]}")
             pass
     print("视频" + video_id + " " + video_name + "学习完成！")
     return 1
 
 
-def get_videos_ids(course_name, classroom_id, course_sign):
-    get_homework_ids = url_root + "mooc-api/v1/lms/learn/course/chapter?cid=" + str(
-        classroom_id) + "&term=latest&uv_id=" + university_id + "&sign=" + course_sign
+def get_videos_ids(course_name, classroom_id):
+    # 第一步：获取courseware_id
+    logs_url = url_root + f"v2/api/web/logs/learn/{classroom_id}?actype=-1&page=0&offset=20&sort=-1"
+    logs_response = requests.get(url=logs_url, headers=headers)
+    logs_json = json.loads(logs_response.text)
+    
+    if logs_json.get("errcode") != 0:
+        raise Exception(f"获取日志失败: {logs_json.get('errmsg')}")
+    
+    # 从activities中找到type=15的记录（课程章节），获取courseware_id
+    courseware_id = None
+    for activity in logs_json["data"]["activities"]:
+        if activity.get("type") == 15:  # type=15 是课程章节
+            courseware_id = activity.get("courseware_id")
+            break
+    
+    if not courseware_id:
+        raise Exception("未找到courseware_id")
+    
+    print(f"获取到courseware_id: {courseware_id}")
+    
+    # 第二步：使用courseware_id获取章节列表
+    get_homework_ids = url_root + f"c27/online_courseware/xty/kls/pub_news/{courseware_id}/"
     homework_ids_response = requests.get(url=get_homework_ids, headers=headers)
     homework_json = json.loads(homework_ids_response.text)
     homework_dic = {}
+    
     try:
-        for i in homework_json["data"]["course_chapter"]:
-            for j in i["section_leaf_list"]:
-                if "leaf_list" in j:
-                    for z in j["leaf_list"]:
-                        if z['leaf_type'] == leaf_type["video"]:
-                            homework_dic[z["id"]] = z["name"]
-                else:
-                    if j['leaf_type'] == leaf_type["video"]:
-                        # homework_ids.append(j["id"])
-                        homework_dic[j["id"]] = j["name"]
-        print(course_name + "共有" + str(len(homework_dic)) + "个作业喔！")
+        for chapter in homework_json["data"]["content_info"]:
+            for leaf in chapter.get("leaf_list", []):
+                if leaf.get("leaf_type") == leaf_type["video"]:
+                    homework_dic[leaf["id"]] = leaf["title"]
+        print(course_name + "共有" + str(len(homework_dic)) + "个视频喔！")
         return homework_dic
-    except:
-        print("fail while getting homework_ids!!! please re-run this program!")
+    except Exception as e:
+        print(f"解析章节失败: {e}")
+        print(f"章节API响应: {homework_ids_response.text[:500]}")
         raise Exception("fail while getting homework_ids!!! please re-run this program!")
 
 
 if __name__ == "__main__":
     your_courses = []
 
-    # 首先要获取用户的个人ID，即user_id,该值在查询用户的视频进度时需要使用
-    user_id_url = url_root + "edu_admin/check_user_session/"
-    id_response = requests.get(url=user_id_url, headers=headers)
-    try:
-        user_id = re.search(r'"user_id":(.+?)}', id_response.text).group(1).strip()
-    except:
-        print("也许是网路问题，获取不了user_id,请试着重新运行")
-        raise Exception("也许是网路问题，获取不了user_id,请试着重新运行!!! please re-run this program!")
-
-    # 然后要获取教室id
-    get_classroom_id = url_root + "mooc-api/v1/lms/user/user-courses/?status=1&page=1&no_page=1&term=latest&uv_id=" + university_id + ""
+    # 获取课程列表（新API）
+    get_classroom_id = url_root + "v2/api/web/courses/list?identity=2"
     submit_url = url_root + "mooc-api/v1/lms/exercise/problem_apply/?term=latest&uv_id=" + university_id + ""
     classroom_id_response = requests.get(url=get_classroom_id, headers=headers)
     try:
-        for ins in json.loads(classroom_id_response.text)["data"]["product_list"]:
+        response_data = json.loads(classroom_id_response.text)
+        if response_data.get("errcode") != 0:
+            raise Exception(f"API返回错误: {response_data.get('errmsg')}")
+        for ins in response_data["data"]["list"]:
             your_courses.append({
-                "course_name": ins["course_name"],
+                "course_name": ins["name"],
                 "classroom_id": ins["classroom_id"],
-                "course_sign": ins["course_sign"],
-                "sku_id": ins["sku_id"],
-                "course_id": ins["course_id"]
+                "course_id": ins["course"]["id"],
+                "sku_id": ins.get("sku_id", 0),
+                "term": ins.get("term", "latest")  # 新增term字段
             })
     except Exception as e:
-        print("fail while getting classroom_id!!! please re-run this program!")
+        print(f"获取课程列表失败: {e}")
+        print(f"API响应: {classroom_id_response.text[:500]}")
         raise Exception("fail while getting classroom_id!!! please re-run this program!")
 
     # 显示用户提示
@@ -199,7 +210,7 @@ if __name__ == "__main__":
             flag = False    # 输入合法则不需要循环
             # 0 表示全部刷一遍
             for ins in your_courses:
-                homework_dic = get_videos_ids(ins["course_name"], ins["classroom_id"], ins["course_sign"])
+                homework_dic = get_videos_ids(ins["course_name"], ins["classroom_id"])
                 for one_video in homework_dic.items():
                     one_video_watcher(one_video[0], one_video[1], ins["course_id"], user_id, ins["classroom_id"],
                                       ins["sku_id"])
@@ -207,8 +218,7 @@ if __name__ == "__main__":
             flag = False    # 输入合法则不需要循环
             # 指定序号的课程刷一遍
             number = int(number) - 1
-            homework_dic = get_videos_ids(your_courses[number]["course_name"], your_courses[number]["classroom_id"],
-                                          your_courses[number]["course_sign"])
+            homework_dic = get_videos_ids(your_courses[number]["course_name"], your_courses[number]["classroom_id"])
             for one_video in homework_dic.items():
                 one_video_watcher(one_video[0], one_video[1], your_courses[number]["course_id"], user_id,
                                   your_courses[number]["classroom_id"],
